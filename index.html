@@ -186,6 +186,8 @@ table.props{border-collapse:collapse;width:100%;font-size:18px;font-variant-nume
 .launch-by{font-size:16px;letter-spacing:.12em;text-transform:uppercase;color:#465249}
 .launch p{margin:8px 0 6px}
 .launch-go{text-decoration:none;font-size:22px;padding:6px 22px}
+.launch.verse{background:none;padding:18px 16px 20px}
+.launch.verse p{max-width:290px}
 .body.dark{background:#000;padding:0;line-height:0}
 .tapimg{display:block;width:100%;height:auto}
 .ico .gi{height:74px;width:auto;filter:drop-shadow(1px 2px 0 rgba(0,0,0,.5))}
@@ -513,6 +515,7 @@ function boot(text){
 
 /* ---------- 4. DESKTOP ---------- */
 const ICONS={
+  verse:'<svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path fill="#fff" d="M2 3h9v12H2z"/><path fill="#0e1712" d="M1 3h1v12H1zM11 3h1v12h-1zM2 15h9v1H2zM2 2h9v1H2z"/><path fill="#3f9a66" d="M4 6h5v1H4zM4 8h4v1H4zM4 10h5v1H4zM4 12h3v1H4z"/><path fill="#6fc98e" d="M14 1h1v1h-1zM13 2h2v1h-2zM12 3h2v1h-2zM11 4h2v1h-2zM10 5h2v1h-2zM9 6h2v1H9zM8 7h2v1H8z"/><path fill="#0e1712" d="M7 8h1v1H7zM15 1h1v2h-1z"/></svg>',
   doc:'<svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path fill="#fff" d="M3 1h7l3 3v11H3z"/><path fill="#0e1712" d="M3 1h7v1H3zM2 1h1v15H2zM13 4h1v12h-1zM3 15h10v1H3zM10 1h1v3h3v1h-4z"/><path fill="#3f9a66" d="M5 6h6v1H5zM5 8h6v1H5zM5 10h6v1H5zM5 12h4v1H5z"/></svg>',
   disc:'<svg viewBox="0 0 16 16" shape-rendering="crispEdges"><circle cx="8" cy="8" r="7" fill="#6fc98e" stroke="#0e1712"/><circle cx="8" cy="8" r="4" fill="none" stroke="#1b5e38"/><circle cx="8" cy="8" r="1.5" fill="#0e1712"/><path fill="#9fe8b8" d="M4 4h2v1H4zM3 5h1v2H3z"/></svg>',
   coin:'<svg viewBox="0 0 16 16" shape-rendering="crispEdges"><circle cx="8" cy="8" r="7" fill="#e8c34d" stroke="#0e1712"/><circle cx="8" cy="8" r="5" fill="#f5d96b" stroke="#a8862a"/><path fill="#1b5e38" d="M5 5h6v2H9v5H7V7H5z"/></svg>',
@@ -553,6 +556,13 @@ const APPS={
       <figure><img src="${IMG_TAPSTUB}" alt="TapStub, a Tap Memory product"><figcaption>TapStub</figcaption></figure>
       <figure><img src="${IMG_SOUNDSEEKR}" alt="SoundSeekr, a Tap Memory product"><figcaption>SoundSeekr</figcaption></figure>
     </div>`},
+  verse:{title:"Timeline Verse",icon:"verse",w:360,html:()=>`
+    <div class="launch verse">
+      <div class="launch-name">Timeline Verse</div>
+      <div class="launch-by">A Tap Memory Product</div>
+      <p>Type any X handle and get a poem written from that account's posts, replies, likes and comments.</p>
+      <a class="btn98 launch-go" href="/poem" target="_blank" rel="noopener">&#9998; Write a poem</a>
+    </div>`},
   game:{title:"re:member - a game by TAP MEMORY",icon:"game",w:340,dark:true,html:()=>`
     <div class="launch">
       <img class="launch-card" src="${GAME_CARD}" alt="Tap Memory re:gens x re:member game card">
@@ -581,8 +591,8 @@ const APPS={
     <li>Start, then Log Off, to switch accounts.</li>
     <li>Start, then Shut Down, to see the boot again.</li></ul>`}
 };
-const DESKTOP=["join","welcome","how","events","products","token","game","discord","links"];
-const LABELS={join:"Join Tap Memory",welcome:"Welcome.txt",how:"How It Works",events:"Create an Event",products:"Our Products",token:"$TAP",game:"re:member game",discord:"Discord",links:"Links"};
+const DESKTOP=["join","welcome","how","events","products","verse","token","game","discord","links"];
+const LABELS={join:"Join Tap Memory",welcome:"Welcome.txt",how:"How It Works",events:"Create an Event",products:"Our Products",verse:"Timeline Verse",token:"$TAP",game:"re:member game",discord:"Discord",links:"Links"};
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 
@@ -676,7 +686,7 @@ function gameInit(w){
 }
 
 /* start menu */
-const SM=[["join","Join Tap Memory"],["how","How It Works"],["events","Create an Event"],["products","Our Products"],["token","$TAP"],["game","re:member game"],["discord","Discord"],["links","Links"],["help","Help"],null,["logoff","Log Off "],["power","Shut Down..."]];
+const SM=[["join","Join Tap Memory"],["how","How It Works"],["events","Create an Event"],["products","Our Products"],["verse","Timeline Verse"],["token","$TAP"],["game","re:member game"],["discord","Discord"],["links","Links"],["help","Help"],null,["logoff","Log Off "],["power","Shut Down..."]];
 const smList=$("#smList");
 SM.forEach(it=>{
   if(!it){smList.appendChild(document.createElement("hr"));return}
