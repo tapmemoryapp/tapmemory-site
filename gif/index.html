@@ -368,64 +368,102 @@ async function buildThumbs(token){
    Only the converter's code is downloaded (once, then cached by the browser).
    The video itself is processed in this tab and never uploaded.
    To serve the converter from your own domain, copy these files and change the URLs. */
-const FFMPEG_JS   = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js';
-const FFMPEG_WORK = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js';
-const CORE_BASE   = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+const CORE_BASE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
 const MAX_CONVERT_BYTES = 1.5*1024*1024*1024;
 
-let ff=null, ffURLs=null, converting=false;
+// A tiny "classic" worker that runs FFmpeg off the main thread.
+// (Mirrors @ffmpeg/ffmpeg's own worker, without the module-worker mode that breaks with the UMD core.)
+const WORKER_SRC = `
+let core=null;
+self.onmessage=async({data:m})=>{
+  try{
+    if(m.type==='load'){
+      importScripts(m.coreURL);
+      core=await self.createFFmpegCore({
+        mainScriptUrlOrBlob: m.coreURL+'#'+btoa(JSON.stringify({wasmURL:m.wasmURL, workerURL:''}))
+      });
+      core.setLogger(d=>self.postMessage({type:'log',msg:d.message}));
+      core.setProgress(d=>self.postMessage({type:'progress',p:d.progress}));
+      self.postMessage({type:'loaded'});
+    }else if(m.type==='convert'){
+      core.FS.writeFile(m.inName,new Uint8Array(m.buf));
+      core.setTimeout(-1);
+      core.exec(...m.args);
+      const rc=core.ret; core.reset();
+      let out=null;
+      try{ out=core.FS.readFile('out.mp4'); core.FS.unlink('out.mp4'); }catch(e){}
+      try{ core.FS.unlink(m.inName); }catch(e){}
+      if(rc!==0||!out||!out.length) throw new Error('ffmpeg exit code '+rc);
+      self.postMessage({type:'done',data:out},[out.buffer]);
+    }
+  }catch(e){ self.postMessage({type:'error',msg:String((e&&e.message)||e)}); }
+};`;
+
+let ff=null, ffURLs=null, converting=false, ffLog=[];
 async function toBlobURL(url,type){
-  const r=await fetch(url); if(!r.ok) throw new Error('fetch '+url);
+  let r;
+  try{ r=await fetch(url); }catch(e){ throw new Error('download blocked or offline: '+url.split('/').pop()); }
+  if(!r.ok) throw new Error('download failed ('+r.status+'): '+url.split('/').pop());
   return URL.createObjectURL(new Blob([await r.arrayBuffer()],{type}));
 }
-function loadScript(src){
-  return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+function ffCall(worker,msg,transfer,onProgress){
+  return new Promise((res,rej)=>{
+    worker.onmessage=({data:d})=>{
+      if(d.type==='log'){ ffLog.push(d.msg); if(ffLog.length>40) ffLog.shift(); }
+      else if(d.type==='progress'){ onProgress&&onProgress(d.p); }
+      else if(d.type==='error'){ rej(new Error(d.msg)); }
+      else res(d);
+    };
+    worker.onerror=e=>{ e.preventDefault&&e.preventDefault(); rej(new Error('worker: '+(e.message||'failed to start'))); };
+    worker.postMessage(msg,transfer||[]);
+  });
 }
 async function getFFmpeg(){
   if(ff) return ff;
-  if(!window.FFmpegWASM) await loadScript(FFMPEG_JS);
   if(!ffURLs){
-    const [classWorkerURL,coreURL,wasmURL]=await Promise.all([
-      toBlobURL(FFMPEG_WORK,'text/javascript'),
+    const [coreURL,wasmURL]=await Promise.all([
       toBlobURL(CORE_BASE+'/ffmpeg-core.js','text/javascript'),
       toBlobURL(CORE_BASE+'/ffmpeg-core.wasm','application/wasm')
     ]);
-    ffURLs={classWorkerURL,coreURL,wasmURL};
+    ffURLs={coreURL,wasmURL};
   }
-  const inst=new window.FFmpegWASM.FFmpeg();
-  await inst.load(ffURLs);
-  ff=inst; return ff;
+  const w=new Worker(URL.createObjectURL(new Blob([WORKER_SRC],{type:'text/javascript'})));
+  try{ await ffCall(w,{type:'load',...ffURLs}); }
+  catch(e){ w.terminate(); throw e; }
+  ff=w; return ff;
 }
+function stopFFmpeg(){ if(ff){ try{ ff.terminate(); }catch(_){} ff=null; } }
+
 async function convertToMp4(file,token){
   if(file.size>MAX_CONVERT_BYTES) throw {userMsg:'That file is too big to convert in the browser (1.5 GB max). Try exporting it as MP4 first.'};
-  busy=true; converting=true; cancelled=false;
+  busy=true; converting=true; cancelled=false; ffLog=[];
   show('work'); $('progressBox').hidden=false; $('resultBox').hidden=true;
   progress(0.02,'This format needs converting to MP4 first. Loading the converter (one-time ~30 MB download)…');
-  let inst;
   try{
-    try{ inst=await getFFmpeg(); }
-    catch(e){ throw {userMsg:'Couldn’t load the video converter (check your connection). MP4 and WebM files work without it.'}; }
+    let w;
+    try{ w=await getFFmpeg(); }
+    catch(e){ throw {userMsg:'Couldn’t start the video converter. MP4, MOV and WebM files still work. (Details: '+e.message+')'}; }
     if(cancelled||token!==loadToken) throw 'cancel';
     const ext=((file.name||'').match(/\.[a-z0-9]+$/i)||['.bin'])[0].toLowerCase();
-    const inName='input'+ext;
     progress(0.05,'Reading your video…');
-    await inst.writeFile(inName,new Uint8Array(await file.arrayBuffer()));
-    const onProg=({progress:p})=>{ if(p>=0&&p<=1) progress(0.05+0.95*p,`Converting to MP4… ${Math.round(p*100)}%`); };
-    inst.on('progress',onProg);
+    const buf=await file.arrayBuffer();
     progress(0.05,'Converting to MP4…');
-    const rc=await inst.exec(['-i',inName,
-      '-vf',"scale='trunc(min(800,iw)/2)*2':-2",      // GIFs max out at 800px, so no need for more
-      '-c:v','libx264','-preset','ultrafast','-crf','18','-pix_fmt','yuv420p',
-      '-an','-movflags','+faststart','out.mp4']);
-    inst.off('progress',onProg);
+    let d;
+    try{
+      d=await ffCall(w,{type:'convert',inName:'input'+ext,buf,args:['-i','input'+ext,
+        '-vf',"scale='trunc(min(800,iw)/2)*2':-2",      // GIFs max out at 800px, so no need for more
+        '-c:v','libx264','-preset','ultrafast','-crf','18','-pix_fmt','yuv420p',
+        '-an','-movflags','+faststart','out.mp4']},[buf],
+        p=>{ if(p>=0&&p<=1) progress(0.05+0.95*p,`Converting to MP4… ${Math.round(p*100)}%`); });
+    }catch(e){
+      if(cancelled||token!==loadToken) throw 'cancel';
+      const last=ffLog.filter(l=>/error|invalid|unsupported|not found/i.test(l)).slice(-1)[0]||e.message;
+      throw {userMsg:'This video couldn’t be converted. (Details: '+last+')'};
+    }
     if(cancelled||token!==loadToken) throw 'cancel';
-    if(rc!==0) throw new Error('ffmpeg exit '+rc);
-    const data=await inst.readFile('out.mp4');
-    try{ await inst.deleteFile(inName); await inst.deleteFile('out.mp4'); }catch(e){}
-    return new Blob([data],{type:'video/mp4'});
+    return new Blob([d.data],{type:'video/mp4'});
   }catch(e){
-    // wipe the converter's memory so nothing lingers
-    if(ff){ try{ ff.terminate(); }catch(_){} ff=null; }
+    stopFFmpeg(); // wipe the converter's memory so nothing lingers
     throw e;
   }finally{ busy=false; converting=false; }
 }
@@ -623,7 +661,7 @@ function progress(frac,msg){ barFill.style.width=(frac*100).toFixed(1)+'%'; if(m
 $('btnCancel').addEventListener('click',()=>{
   cancelled=true;
   if(converting){ // stop FFmpeg right away and go back to the start
-    if(ff){ try{ ff.terminate(); }catch(_){} ff=null; }
+    stopFFmpeg();
     loadToken++; converting=false; busy=false; clearAll(); show('drop');
   }
 });
