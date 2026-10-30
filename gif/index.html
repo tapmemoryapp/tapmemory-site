@@ -75,7 +75,14 @@
     box-shadow:0 10px 30px -18px rgba(31,72,48,.35)}
   .stage{background:var(--stage);border-radius:12px;overflow:hidden;display:flex;justify-content:center}
   .stage video{max-width:100%;max-height:52vh;display:block}
-  .tl{position:relative;height:56px;margin:18px 0 8px;border-radius:10px;background:var(--soft);
+  .ov{position:relative;height:26px;margin:16px 22px 4px;border-radius:7px;background:var(--soft);
+    border:1.5px solid var(--line);touch-action:none;user-select:none;cursor:pointer}
+  .ov .thumbs{border-radius:6px;opacity:.75}
+  .ovwin{position:absolute;top:-3px;bottom:-3px;border:2px solid var(--dim);border-radius:6px;pointer-events:none;opacity:.55}
+  .ovsel{position:absolute;top:0;bottom:0;min-width:3px;background:var(--accent);opacity:.9;border-radius:2px;pointer-events:none}
+  .ovph{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--teal);pointer-events:none}
+  .ovlabel{display:flex;justify-content:space-between;margin:0 22px;font-size:11px;color:var(--dim);font-weight:700;font-variant-numeric:tabular-nums}
+  .tl{position:relative;height:56px;margin:14px 22px 8px;border-radius:10px;background:var(--soft);
     border:1.5px solid var(--line);touch-action:none;user-select:none;cursor:pointer;overflow:visible}
   .thumbs{position:absolute;inset:0;display:flex;border-radius:9px;overflow:hidden}
   .thumbs canvas{flex:1 1 0;min-width:0;height:100%;object-fit:cover}
@@ -84,14 +91,17 @@
   .sel{position:absolute;top:-2px;bottom:-2px;border:3px solid var(--accent);border-radius:8px;
     background:transparent;cursor:grab}
   .sel:active{cursor:grabbing}
-  .handle{position:absolute;top:-7px;bottom:-7px;width:22px;margin-left:-11px;cursor:ew-resize;z-index:3;
+  .handle{position:absolute;top:-7px;bottom:-7px;width:22px;cursor:ew-resize;z-index:3;
     display:flex;align-items:center;justify-content:center}
-  .handle i{display:block;width:10px;height:100%;background:var(--accent);border-radius:5px;
+  /* handles sit OUTSIDE the clip so they can never cover each other */
+  #hStart{margin-left:-22px;justify-content:flex-end} #hEnd{margin-left:0;justify-content:flex-start}
+  #hStart i{border-radius:7px 2px 2px 7px} #hEnd i{border-radius:2px 7px 7px 2px}
+  .handle i{display:block;width:14px;height:100%;background:var(--accent);
     box-shadow:0 0 0 2px var(--ring), 0 2px 6px rgba(31,72,48,.3)}
   .playhead{position:absolute;top:-5px;bottom:-5px;width:3px;margin-left:-1.5px;background:var(--teal);
     border-radius:2px;pointer-events:none;z-index:2;box-shadow:0 0 0 1px var(--ring)}
   .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-  .times{justify-content:space-between;color:var(--dim);font-variant-numeric:tabular-nums;font-weight:600}
+  .times{margin:0 22px;justify-content:space-between;color:var(--dim);font-variant-numeric:tabular-nums;font-weight:600}
   .times label{display:flex;gap:6px;align-items:center}
   .times input{width:84px;background:var(--field);border:1.5px solid var(--line);color:var(--text);
     border-radius:10px;padding:6px 8px;font:inherit;font-variant-numeric:tabular-nums}
@@ -120,7 +130,7 @@
   footer{margin-top:28px;display:flex;gap:10px;align-items:flex-start;color:var(--dim);font-size:13px;
     border-top:1.5px solid var(--line);padding-top:16px}
   footer svg{flex:none;margin-top:2px;color:var(--accent)}
-  @media (max-width:640px){ .blob{opacity:.55} .blob.bl{width:300px;height:300px;left:-120px;bottom:-120px} .blob.tr{width:260px;height:300px;right:-140px;top:-140px} .tag{margin-left:0} header{position:relative;padding-right:48px} .theme{position:absolute;top:6px;right:0} .brand img{height:48px} }
+  @media (max-width:640px){ .ov,.tl,.ovlabel,.times{margin-left:16px;margin-right:16px} .times{gap:6px;font-size:14px} .times input{width:64px}  .blob{opacity:.55} .blob.bl{width:300px;height:300px;left:-120px;bottom:-120px} .blob.tr{width:260px;height:300px;right:-140px;top:-140px} .tag{margin-left:0} header{position:relative;padding-right:48px} .theme{position:absolute;top:6px;right:0} .brand img{height:48px} }
   .vh{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
 </style>
 <script>
@@ -155,6 +165,15 @@ document.documentElement.setAttribute('data-theme',t||'light');})();
   <section id="editor" class="card" hidden>
     <div class="stage"><video id="vid" playsinline muted preload="auto"></video></div>
 
+    <div id="ovBox" hidden>
+      <div class="ov" id="ov" aria-label="Whole video — tap to jump">
+        <div class="thumbs" id="ovThumbs"></div>
+        <div class="ovwin" id="ovWin"></div>
+        <div class="ovsel" id="ovSel"></div>
+        <div class="ovph" id="ovPh"></div>
+      </div>
+      <div class="ovlabel"><span>0:00</span><span>Whole video · tap or drag to jump</span><span id="ovDur"></span></div>
+    </div>
     <div class="tl" id="tl" aria-label="Timeline">
       <div class="thumbs" id="thumbs"></div>
       <div class="shade" id="shadeL" style="left:0"></div>
@@ -257,7 +276,7 @@ const optW=$('optW'), optFps=$('optFps'), optSpeed=$('optSpeed'), optDither=$('o
 
 let srcURL=null, gifURL=null, gifBlob=null, baseName='clip';
 let duration=0, start=0, end=0;
-let busy=false, cancelled=false, loadToken=0, thumbsJob=Promise.resolve();
+let busy=false, cancelled=false, loadToken=0;
 
 /* ---------- helpers ---------- */
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
@@ -295,7 +314,7 @@ function clearAll(){
   vid.removeAttribute('src'); cap.removeAttribute('src'); vid.load(); cap.load();
   if(srcURL){URL.revokeObjectURL(srcURL); srcURL=null;}
   if(gifURL){URL.revokeObjectURL(gifURL); gifURL=null;}
-  gifBlob=null; thumbs.innerHTML=''; $('gifImg').removeAttribute('src');
+  gifBlob=null; thumbs.innerHTML=''; $('ovThumbs').innerHTML=''; $('gifImg').removeAttribute('src');
 }
 
 function loadErr(msg){ const el=$('loadErr'); el.textContent=msg; el.hidden=!msg; }
@@ -345,23 +364,31 @@ async function loadFile(f){
   if(!isFinite(duration)){ // some recorded WebMs report Infinity until scanned
     vid.currentTime=1e7; await once(vid,'durationchange'); duration=vid.duration; vid.currentTime=0;
   }
-  start=0; end=Math.min(duration,4);
+  start=0; end=Math.min(duration,4); winStart=0; winLen=Math.min(duration,WIN);
   show('editor'); render();
   vid.play().catch(()=>{}); syncPlayBtn();
-  thumbsJob = buildThumbs(token);
+  $('ovBox').hidden = duration<=WIN;
+  $('ovDur').textContent = fmtClock(duration);
+  setWindow(true);
+  if(duration>WIN) capTask(()=>buildThumbs(token,$('ovThumbs'),0,duration,12,26));
 }
 
-async function buildThumbs(token){
+// One shared hidden decoder, so thumbnail and GIF jobs run one at a time.
+let capChain=Promise.resolve();
+function capTask(fn){ const r=capChain.then(fn,fn); capChain=r.catch(()=>{}); return r; }
+
+async function buildThumbs(token,box,t0,len,n,h,isWin){
   if(cap.readyState<1) await Promise.race([once(cap,'loadedmetadata'),once(cap,'error')]);
-  const n = 10, ar = vid.videoWidth/vid.videoHeight, h=56, w=Math.round(h*ar);
+  const ar=vid.videoWidth/vid.videoHeight, w=Math.max(8,Math.round(h*ar)), frag=[];
   for(let i=0;i<n;i++){
-    if(token!==loadToken || busy) return;
-    await seek(cap,(i+.5)/n*duration);
+    if(token!==loadToken || busy || (isWin && isWin())) return;
+    await seek(cap,t0+(i+.5)/n*len);
     if(token!==loadToken) return;
     const c=document.createElement('canvas'); c.width=w; c.height=h;
     try{ c.getContext('2d').drawImage(cap,0,0,w,h); }catch(e){}
-    thumbs.appendChild(c);
+    frag.push(c);
   }
+  box.replaceChildren(...frag);
 }
 
 /* ---------- MP4 conversion (FFmpeg compiled to WebAssembly, runs locally) ----------
@@ -469,11 +496,33 @@ async function convertToMp4(file,token){
 }
 
 /* ---------- timeline ---------- */
+// The trimmer shows a zoomed 30-second "window" around the clip, so short clips
+// stay wide enough to grab. The overview bar above shows the whole video.
+const WIN=30;
+let winStart=0, winLen=0, winGen=0;
+const fmtClock=t=>{t=Math.max(0,t);const m=Math.floor(t/60),s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s;};
+function setWindow(force){
+  const newLen=Math.min(duration,WIN);
+  const inside = start>=winStart && end<=winStart+winLen && winLen===newLen;
+  if(!force && inside) { render(); return; }
+  const ns=clamp((start+end)/2-newLen/2,0,Math.max(0,duration-newLen));
+  if(!force && Math.abs(ns-winStart)<0.05 && newLen===winLen){ render(); return; }
+  winStart=ns; winLen=newLen; render();
+  const gen=++winGen, token=loadToken;
+  clearTimeout(setWindow.t);
+  setWindow.t=setTimeout(()=>capTask(()=>buildThumbs(token,thumbs,winStart,winLen,10,56,()=>gen!==winGen)),120);
+}
 function render(){
-  const p=t=>(t/duration*100)+'%';
-  sel.style.left=p(start); sel.style.width=((end-start)/duration*100)+'%';
+  const pc=t=>clamp((t-winStart)/winLen*100,0,100);
+  const p=t=>pc(t)+'%';
+  sel.style.left=p(start); sel.style.width=(pc(end)-pc(start))+'%';
   hStart.style.left=p(start); hEnd.style.left=p(end);
-  shadeL.style.width=p(start); shadeR.style.width=((duration-end)/duration*100)+'%';
+  shadeL.style.width=p(start); shadeR.style.width=(100-pc(end))+'%';
+  if(duration>WIN){
+    const o=t=>(t/duration*100)+'%';
+    $('ovWin').style.left=o(winStart); $('ovWin').style.width=(winLen/duration*100)+'%';
+    $('ovSel').style.left=o(start); $('ovSel').style.width=((end-start)/duration*100)+'%';
+  }
   if(document.activeElement!==inStart) inStart.value=start.toFixed(1);
   if(document.activeElement!==inEnd) inEnd.value=end.toFixed(1);
   inStart.max=inEnd.max=duration.toFixed(1);
@@ -491,21 +540,42 @@ function updateEstimate(){
 }
 [optW,optFps].forEach(el=>el.addEventListener('change',updateEstimate));
 
-const xToT=x=>{const r=tl.getBoundingClientRect(); return clamp((x-r.left)/r.width,0,1)*duration;};
+const xFrac=x=>{const r=tl.getBoundingClientRect(); return (x-r.left)/r.width;};
+const xToT=x=>winStart+clamp(xFrac(x),0,1)*winLen;
 let drag=null, wasPlaying=false;
 tl.addEventListener('pointerdown',e=>{
   if(busy||!duration) return;
   const t=xToT(e.clientX);
   if(e.target.closest('#hStart')) drag={type:'start'};
   else if(e.target.closest('#hEnd')) drag={type:'end'};
+  else if(e.target===tl||e.target.closest('.thumbs,.shade')){
+    // near a handle (within 18px)? grab that handle instead of jumping
+    const r=tl.getBoundingClientRect(), px=t2=>r.left+(t2-winStart)/winLen*r.width;
+    const ds=Math.abs(e.clientX-px(start)), de=Math.abs(e.clientX-px(end));
+    if(Math.min(ds,de)<18) drag={type: e.clientX<px(start)||(ds<de&&e.clientX<=px(end)) ? 'start':'end'};
+    else drag={type:'jump'};
+  }
   else if(e.target.closest('#sel')) drag={type:'move',off:t-start,len:end-start};
   else drag={type:'jump'};
   wasPlaying=!vid.paused; vid.pause();
   tl.setPointerCapture(e.pointerId); applyDrag(e); e.preventDefault();
 });
-tl.addEventListener('pointermove',e=>{ if(drag) applyDrag(e); });
-const endDrag=()=>{ if(!drag) return; const wasMove=drag.type; drag=null;
-  if(wasMove!=='jump' || true){ vid.currentTime=start; } if(wasPlaying) vid.play().catch(()=>{}); syncPlayBtn(); };
+tl.addEventListener('pointermove',e=>{ if(drag){ applyDrag(e); edgeScroll(e); } });
+const endDrag=()=>{ if(!drag) return; drag=null; clearInterval(edgeTimer); edgeTimer=null;
+  vid.currentTime=start; setWindow(false); if(wasPlaying) vid.play().catch(()=>{}); syncPlayBtn(); };
+// holding a handle at the edge of the trimmer slowly scrolls the window
+let edgeTimer=null, lastEv=null;
+function edgeScroll(e){
+  lastEv=e; const f=xFrac(e.clientX);
+  const want = f>0.97 ? 1 : f<0.03 ? -1 : 0;
+  if(!want || duration<=WIN){ clearInterval(edgeTimer); edgeTimer=null; return; }
+  if(edgeTimer) return;
+  edgeTimer=setInterval(()=>{
+    const f2=xFrac(lastEv.clientX), dir=f2>0.97?1:f2<0.03?-1:0;
+    if(!drag||!dir){ clearInterval(edgeTimer); edgeTimer=null; return; }
+    winStart=clamp(winStart+dir*winLen*0.03,0,duration-winLen); applyDrag(lastEv);
+  },50);
+}
 tl.addEventListener('pointerup',endDrag); tl.addEventListener('pointercancel',endDrag);
 
 function applyDrag(e){
@@ -523,15 +593,31 @@ function numInput(){
   let s=parseFloat(inStart.value), en=parseFloat(inEnd.value);
   if(isNaN(s)) s=start; if(isNaN(en)) en=end;
   s=clamp(s,0,duration-MIN_LEN); en=clamp(en,s+MIN_LEN,Math.min(duration,s+MAX_LEN));
-  start=s; end=en; vid.currentTime=start; render();
+  start=s; end=en; vid.currentTime=start; setWindow(false);
 }
+
+// overview bar: tap or drag to move the clip anywhere in the video
+const ov=$('ov'); let ovDrag=false;
+function ovApply(e){
+  const r=ov.getBoundingClientRect(), t=clamp((e.clientX-r.left)/r.width,0,1)*duration, len=end-start;
+  start=clamp(t-len/2,0,Math.max(0,duration-len)); end=Math.min(duration,start+len);
+  vid.currentTime=start;
+  winStart=clamp((start+end)/2-winLen/2,0,Math.max(0,duration-winLen)); render();
+}
+ov.addEventListener('pointerdown',e=>{ if(busy||!duration) return; ovDrag=true; wasPlaying=!vid.paused; vid.pause();
+  ov.setPointerCapture(e.pointerId); ovApply(e); e.preventDefault(); });
+ov.addEventListener('pointermove',e=>{ if(ovDrag) ovApply(e); });
+const ovEnd=()=>{ if(!ovDrag) return; ovDrag=false; setWindow(true); if(wasPlaying) vid.play().catch(()=>{}); };
+ov.addEventListener('pointerup',ovEnd); ov.addEventListener('pointercancel',ovEnd);
 inStart.addEventListener('change',numInput); inEnd.addEventListener('change',numInput);
 
 // keep preview looping inside the selection
 (function loop(){
   if(duration){
     if(!vid.paused && !drag && (vid.currentTime>=end || vid.currentTime<start-0.15)) vid.currentTime=start;
-    ph.style.left=(vid.currentTime/duration*100)+'%';
+    const ct=vid.currentTime, inWin=ct>=winStart&&ct<=winStart+winLen;
+    ph.style.display=inWin?'':'none'; if(inWin) ph.style.left=((ct-winStart)/winLen*100)+'%';
+    if(duration>WIN) $('ovPh').style.left=(ct/duration*100)+'%';
   }
   requestAnimationFrame(loop);
 })();
@@ -673,7 +759,7 @@ async function makeGif(){
   show('work'); $('progressBox').hidden=false; $('resultBox').hidden=true; $('saveHint').hidden=true;
   progress(0,'Getting ready…');
   try{
-    await thumbsJob;
+    await capChain;
     const {w,h}=outSize(), fps=+optFps.value, speed=+optSpeed.value, dither=optDither.checked;
     const n=frameCount(), times=[];
     for(let i=0;i<n;i++) times.push(Math.min(start+i/fps, end-0.001));
